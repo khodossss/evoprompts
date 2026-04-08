@@ -16,10 +16,10 @@ console = Console()
 
 def main():
     config = EvolutionConfig(
-        population_size=8,
+        population_size=10,
         max_generations=10,
-        top_k=3,
-        max_eval_samples=30,
+        top_k=4,
+        max_eval_samples=50,
         initial_prompt="Answer this question. Provide only the exact final answer, nothing else.",
     )
 

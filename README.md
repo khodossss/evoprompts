@@ -54,7 +54,9 @@ All reasoning-type mutations include a guard: "reason INTERNALLY, output ONLY th
 
 ## Example run
 
-A small run on the first 30 GSM8K test problems with `population_size=6`, `top_k=2`, both LLM roles served by `gpt-5-nano` (`evolution_llm` at `reasoning=medium`, `inference_llm` at `reasoning=minimal`). Snapshots from this run live in [`docs/example/`](docs/example/).
+### Run 1
+
+A small run on the first 30 GSM8K test problems with `population_size=6`, `top_k=2`, both LLM roles served by `gpt-5-nano` (`evolution_llm` at `reasoning=medium`, `inference_llm` at `reasoning=minimal`). Snapshots from this run live in [`docs/example1/`](docs/example1/).
 
 The user supplied a deliberately bare initial prompt:
 
@@ -67,8 +69,19 @@ That prompt landed at the bottom of generation 0 with **76.67%** accuracy. By ge
 What the winning prompt picked up over the baseline: an expert persona, an explicit *internal* reasoning step (so it does not waste output tokens on visible chain-of-thought), an internal contradiction check, error anticipation, and a strict "single line, final answer only" output discipline. None of those ideas were in the user's input — God assembled them from successive crossover and mutation steps, and the fitness function on GSM8K kept selecting them.
 
 The full evolution graph:
-![alt text](image.png)
+![evolution graph run 1](docs/example1/evolution_graph.png)
 
+### Run 2
+
+A larger run on the first 50 GSM8K test problems with `population_size=10`, `top_k=4`, same models as run 1. Snapshots in [`docs/example2/`](docs/example2/).
+
+Same bare initial prompt as before. Baseline accuracy on this larger sample was **78%**. After 5 generations the top of the population reached **84%**, with all 10 individuals tightly clustered between 80% and 84% (the population had effectively converged):
+
+> *"Act as an expert problem-solver. You will be asked a question. Your task is to provide only the final answer. Do all reasoning internally; do not reveal any intermediate steps, calculations, or explanations. After deriving the answer, perform a self-check for correctness. If multiple valid conclusions exist, select and output the single best final answer you determined. Internally compute a confidence score for your answer on a 0.0 to 1.0 scale. If this confidence score is below a preset threshold (for example, 0.65), perform an alternative approach or additional checks internally before finalizing the answer. When you have your final answer, output only the final answer—no extra text, symbols, or formatting."*
+
+Different run, different winner: this time the dominant idea is an *internal confidence score with a fallback path* — if internal confidence is below 0.65, the model is told to retry with an alternative approach before committing. The other gen-5 elites converged on first-principles decomposition + internal sanity check. None of these strategies were prescribed by the user; they emerged from random mutation + selection on GSM8K.
+
+![evolution graph run 2](docs/example2/evolution_graph.png)
 
 ## Run
 

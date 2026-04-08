@@ -1,10 +1,11 @@
-"""Step: selection + crossover to produce next generation."""
+"""Selection + crossover. Mutation runs as a separate step."""
 
 from __future__ import annotations
+
 import random
 
 from core.state import Individual, new_id
-from data.output import save_step, add_node, add_edge
+from data.output import add_edge, add_node, save_step
 import steps.common as common
 
 CROSSOVER_SYSTEM = (
@@ -16,7 +17,6 @@ CROSSOVER_SYSTEM = (
 
 @common.timed_step
 def evolve(state: dict) -> dict:
-    """Selection + crossover (batched). Mutation is a separate step."""
     gen = state["generation"] + 1
     common.console.rule(f"[bold magenta]Step: Evolve -> generation {gen}")
 
@@ -28,7 +28,6 @@ def evolve(state: dict) -> dict:
 
     new_population: list[Individual] = []
 
-    # Elites — new id each generation so graph shows them as separate nodes
     for s in survivors:
         eid = new_id()
         new_population.append(Individual(
@@ -43,7 +42,6 @@ def evolve(state: dict) -> dict:
         add_node(eid, gen, s["prompt"], s["fitness"], "elite")
         add_edge(s["id"], eid, "elite")
 
-    # Pre-decide crossover vs clone for remaining slots
     offspring_meta: list[dict] = []
     crossover_calls: list[tuple[str, str]] = []
     crossover_indices: list[int] = []
@@ -72,17 +70,23 @@ def evolve(state: dict) -> dict:
                 "prompt": parent["prompt"],
             })
 
-    # Batch all crossover calls
+    survivor_by_id = {s["id"]: s for s in survivors}
+
     errors: list[dict] = []
     if crossover_calls:
         common.console.print(f"  Firing {len(crossover_calls)} crossover calls in parallel...")
         results = common.llm.evolution_batch(crossover_calls)
         for ci, result in zip(crossover_indices, results):
             if isinstance(result, Exception) or not result:
-                offspring_meta[ci]["prompt"] = state["population"][0]["prompt"]  # fallback
+                errors.append({
+                    "step": "crossover", "index": ci, "error": str(result),
+                    "parent_a": offspring_meta[ci].get("parent_a_id"),
+                    "parent_b": offspring_meta[ci].get("parent_b_id"),
+                })
+                fallback_parent = survivor_by_id[offspring_meta[ci]["parent_a_id"]]
+                offspring_meta[ci]["prompt"] = fallback_parent["prompt"]
                 offspring_meta[ci]["op"] = "clone"
                 offspring_meta[ci]["parent_b_id"] = None
-                errors.append({"step": "crossover", "index": ci, "error": str(result), "parent_a": offspring_meta[ci].get("parent_a_id"), "parent_b": offspring_meta[ci].get("parent_b_id")})
             else:
                 offspring_meta[ci]["prompt"] = result.strip()
 
@@ -101,9 +105,12 @@ def evolve(state: dict) -> dict:
         add_edge(meta["parent_a_id"], cid, meta["op"])
         if meta["parent_b_id"]:
             add_edge(meta["parent_b_id"], cid, "crossover")
-        common.console.print(f"  New [{len(new_population)}/{common.config.population_size}] via {meta['op']}: {meta['prompt'][:60]}...")
+        common.console.print(
+            f"  New [{len(new_population)}/{common.config.population_size}] via {meta['op']}: {meta['prompt'][:60]}..."
+        )
 
     save_step("crossover", gen, new_population)
     if errors:
         save_step("crossover_errors", gen, errors)
+
     return {"population": new_population, "generation": gen}

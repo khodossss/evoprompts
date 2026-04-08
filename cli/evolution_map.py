@@ -1,18 +1,20 @@
-"""Render the evolution map — a visual summary of the evolutionary process."""
+"""Print and save a textual summary of the evolutionary run."""
 
 from __future__ import annotations
+
 import json
+import os
 
 from rich.console import Console
 from rich.table import Table
 
 from core.state import EvolutionState
+from data.output import get_output_dir
 
 console = Console()
 
 
 def print_evolution_map(state: EvolutionState):
-    """Print a rich summary of the entire evolution."""
     console.print()
     console.rule("[bold green]EVOLUTION MAP")
 
@@ -44,20 +46,21 @@ def print_evolution_map(state: EvolutionState):
     console.rule("Final Population")
     for i, ind in enumerate(state["population"]):
         console.print(
-            f"  [{i+1}] fitness={ind['fitness']:.2%} "
+            f"  [{i + 1}] fitness={ind['fitness']:.2%} "
             f"mutation={ind['mutation']} "
             f"gen={ind['generation']}"
         )
         console.print(f"      {ind['prompt'][:80]}...")
 
 
-def save_evolution_map(state: EvolutionState, path: str = "evolution_results.json"):
-    """Save full evolution history to JSON."""
+def save_evolution_map(state: EvolutionState, filename: str = "evolution_results.json"):
     data = {
         "best_ever": state["best_ever"],
         "generations": state["history"],
         "final_population": state["population"],
     }
+    out_dir = get_output_dir()
+    path = os.path.join(out_dir, filename) if out_dir else filename
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     console.print(f"[bold]Results saved to {path}[/bold]")

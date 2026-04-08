@@ -1,6 +1,7 @@
-"""LangGraph state definition for the evolutionary loop."""
+"""LangGraph state definition."""
 
 from __future__ import annotations
+
 import uuid
 from typing import TypedDict
 
@@ -13,8 +14,8 @@ class Individual(TypedDict):
     id: str
     prompt: str
     fitness: float
-    parent_a: str | None  # id of parent
-    parent_b: str | None  # id of parent (crossover only)
+    parent_a: str | None
+    parent_b: str | None
     mutation: str | None
     generation: int
 

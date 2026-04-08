@@ -1,4 +1,4 @@
-"""Step: check stopping condition."""
+"""Stop-condition check."""
 
 from __future__ import annotations
 
@@ -14,11 +14,12 @@ def check_stop(state: dict) -> dict:
         or state["best_ever"]["fitness"] >= 1.0
     )
     if done:
-        reason = (
-            "max_gen" if state["generation"] >= common.config.max_generations - 1
-            else "plateau" if state["plateau_counter"] >= common.config.plateau_patience
-            else "perfect"
-        )
+        if state["generation"] >= common.config.max_generations - 1:
+            reason = "max_gen"
+        elif state["plateau_counter"] >= common.config.plateau_patience:
+            reason = "plateau"
+        else:
+            reason = "perfect"
         common.console.print(f"[bold red]Stopping: {reason}[/bold red]")
     else:
         common.console.print("  Continuing evolution...")

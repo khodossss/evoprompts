@@ -1,6 +1,7 @@
-"""Visualize evolution from graph.json using Plotly."""
+"""Render evolution graph from graph.json with Plotly."""
 
 from __future__ import annotations
+
 import json
 import os
 
@@ -13,8 +14,6 @@ def _short(prompt: str, max_len: int = 60) -> str:
 
 
 def build_evolution_graph(output_dir: str) -> go.Figure:
-    """Build a Plotly figure from graph.json."""
-
     graph_path = os.path.join(output_dir, "graph.json")
     with open(graph_path) as f:
         graph = json.load(f)
@@ -24,34 +23,32 @@ def build_evolution_graph(output_dir: str) -> go.Figure:
 
     max_gen = max((n["generation"] for n in nodes.values()), default=0)
 
-    # ── Group by generation ─────────────────────────────────
     gen_groups: dict[int, list[str]] = {}
     for nid, ndata in nodes.items():
         gen_groups.setdefault(ndata["generation"], []).append(nid)
 
-    # Parent lookup for barycenter
     parents_of: dict[str, list[str]] = {}
     for e in edges:
         parents_of.setdefault(e["target"], []).append(e["source"])
 
-    # Place gen 0
-    gen_groups.setdefault(0, []).sort()
     pos: dict[str, tuple[float, float]] = {}
-    for i, nid in enumerate(gen_groups.get(0, [])):
+
+    gen_groups.setdefault(0, []).sort()
+    for i, nid in enumerate(gen_groups[0]):
         x = (i - (len(gen_groups[0]) - 1) / 2) * 1.5
         pos[nid] = (x, 0)
 
-    # Barycenter ordering for subsequent gens
+    # Order each subsequent generation by the average x of its parents
+    # to reduce edge crossings.
     for g in range(1, max_gen + 1):
         if g not in gen_groups:
             continue
         nids = gen_groups[g]
 
-        def _barycenter(nid):
+        def _barycenter(nid: str, _placed: dict[str, tuple[float, float]] = pos) -> float:
             pars = parents_of.get(nid, [])
-            if pars:
-                return sum(pos[p][0] for p in pars if p in pos) / len(pars)
-            return 0.0
+            xs = [_placed[p][0] for p in pars if p in _placed]
+            return sum(xs) / len(xs) if xs else 0.0
 
         nids.sort(key=_barycenter)
         gen_groups[g] = nids
@@ -60,14 +57,15 @@ def build_evolution_graph(output_dir: str) -> go.Figure:
             x = (i - (len(nids) - 1) / 2) * 1.5
             pos[nid] = (x, -g)
 
-    # ── Fitness range ───────────────────────────────────────
     all_fitness = [n["fitness"] for n in nodes.values()]
     min_f = min(all_fitness) if all_fitness else 0
     max_f = max(all_fitness) if all_fitness else 1
 
-    # ── Edge traces ─────────────────────────────────────────
-    edge_x, edge_y = [], []
-    edge_mid_x, edge_mid_y, edge_labels = [], [], []
+    edge_x: list[float | None] = []
+    edge_y: list[float | None] = []
+    edge_mid_x: list[float] = []
+    edge_mid_y: list[float] = []
+    edge_labels: list[str] = []
 
     for e in edges:
         src, tgt = e["source"], e["target"]
@@ -96,7 +94,6 @@ def build_evolution_graph(output_dir: str) -> go.Figure:
         hoverinfo="none",
     )
 
-    # ── Node trace ──────────────────────────────────────────
     node_ids = [nid for nid in nodes if nid in pos]
     node_x = [pos[nid][0] for nid in node_ids]
     node_y = [pos[nid][1] for nid in node_ids]
@@ -128,7 +125,6 @@ def build_evolution_graph(output_dir: str) -> go.Figure:
         ),
     )
 
-    # ── Figure ──────────────────────────────────────────────
     max_per_gen = max(len(v) for v in gen_groups.values()) if gen_groups else 1
     fig = go.Figure(
         data=[edge_trace, edge_label_trace, node_trace],
@@ -153,7 +149,6 @@ def build_evolution_graph(output_dir: str) -> go.Figure:
 
 
 def visualize(output_dir: str):
-    """Build and show the evolution graph, also save as HTML."""
     fig = build_evolution_graph(output_dir)
     html_path = os.path.join(output_dir, "evolution_graph.html")
     fig.write_html(html_path)

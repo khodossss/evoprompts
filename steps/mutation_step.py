@@ -1,13 +1,13 @@
-"""Step: apply mutations to the population. 40 mutation operators."""
+"""40 mutation operators applied by the evolution LLM."""
 
 from __future__ import annotations
+
 import random
 
 from core.state import Individual, new_id
-from data.output import save_step, get_graph
+from data.output import get_graph, save_step
 import steps.common as common
 
-# Preamble added to every mutation system prompt to prevent refusals
 _PREAMBLE = (
     "You are an AI prompt optimization tool. Your job is to EDIT and IMPROVE "
     "user-written instruction prompts. You are NOT being asked to reveal, extract, "
@@ -16,18 +16,14 @@ _PREAMBLE = (
     "Always output the improved prompt.\n\n"
 )
 
-# Guard appended to all reasoning-type mutations so they direct thinking
-# to internal reasoning, not to printed output
 _REASONING_GUARD = (
     " CRITICAL: the improved prompt MUST instruct the solver to do this reasoning "
     "INTERNALLY and output ONLY the final answer — no intermediate steps, no explanations, "
     "no working shown. The output must be just the exact answer."
 )
 
-# ── 40 mutation operators ──────────────────────────────────────────
 
 MUTATIONS: dict[str, dict[str, str]] = {
-    # ── Core ─────────────────────────────────────────────────
     "rephrase": {
         "system": "You are a prompt engineer. Rephrase the given prompt to express the same instruction differently. Change sentence structure, vocabulary, and ordering. Do NOT change the task semantics.",
         "user": "Rephrase this prompt:\n\n{prompt}\n\nReturn ONLY the new prompt, nothing else.",
@@ -61,7 +57,6 @@ MUTATIONS: dict[str, dict[str, str]] = {
         "user": "Add a persona to this prompt:\n\n{prompt}\n\nReturn ONLY the new prompt, nothing else.",
     },
 
-    # ── Reasoning (all with internal-only guard) ─────────────
     "add_cot": {
         "system": "Add chain-of-thought reasoning instructions to this prompt. Tell the solver to think step by step INTERNALLY before answering." + _REASONING_GUARD,
         "user": "Add internal CoT:\n\n{prompt}\n\nReturn ONLY the new prompt, nothing else.",
@@ -131,7 +126,6 @@ MUTATIONS: dict[str, dict[str, str]] = {
         "user": "Add internal chain of verification:\n\n{prompt}\n\nReturn ONLY the new prompt, nothing else.",
     },
 
-    # ── Verification & Accuracy ──────────────────────────────
     "self_verification": {
         "system": "Add self-verification instructions. Tell the solver to internally check their work and verify the answer satisfies all conditions before outputting." + _REASONING_GUARD,
         "user": "Add internal self-verification:\n\n{prompt}\n\nReturn ONLY the new prompt, nothing else.",
@@ -173,7 +167,6 @@ MUTATIONS: dict[str, dict[str, str]] = {
         "user": "Add internal unit/type check:\n\n{prompt}\n\nReturn ONLY the new prompt, nothing else.",
     },
 
-    # ── Domain & Style ───────────────────────────────────────
     "academic_tone": {
         "system": "Rewrite this prompt in a formal academic tone. Use precise, technical language that signals rigor and exactitude.",
         "user": "Make academic:\n\n{prompt}\n\nReturn ONLY the new prompt, nothing else.",
@@ -197,23 +190,30 @@ MUTATIONS: dict[str, dict[str, str]] = {
 }
 
 
-REFUSAL_MARKERS = ["i can't", "i'm sorry", "i cannot", "i am unable", "as an ai"]
+REFUSAL_PREFIXES = (
+    "i can't",
+    "i cannot",
+    "i'm sorry",
+    "i am sorry",
+    "i am unable",
+    "sorry, i",
+    "i won't",
+    "i will not",
+)
 
 
 def _is_refusal(text: str) -> bool:
-    lower = text.lower()
-    return any(m in lower for m in REFUSAL_MARKERS)
+    head = text.lstrip().lower()[:80]
+    return any(head.startswith(p) for p in REFUSAL_PREFIXES)
 
 
 @common.timed_step
 def mutate_population(state: dict) -> dict:
-    """Apply random mutations to non-elite individuals (batched)."""
     gen = state["generation"]
     common.console.rule(f"[bold green]Step: Mutate (gen {gen})")
     population = list(state["population"])
 
-    # Collect mutations to apply
-    mutation_plan: list[tuple[int, str]] = []  # (index, mutation_name)
+    mutation_plan: list[tuple[int, str]] = []
     calls: list[tuple[str, str]] = []
 
     for i, ind in enumerate(population):
@@ -225,7 +225,6 @@ def mutate_population(state: dict) -> dict:
             calls.append((_PREAMBLE + spec["system"], spec["user"].format(prompt=ind["prompt"])))
             mutation_plan.append((i, mut_name))
 
-    # Fire all mutation calls in parallel
     errors: list[dict] = []
     if calls:
         common.console.print(f"  Firing {len(calls)} mutation calls in parallel...")
@@ -233,14 +232,21 @@ def mutate_population(state: dict) -> dict:
 
         for (i, mut_name), result in zip(mutation_plan, results):
             if isinstance(result, Exception) or not result:
-                common.console.print(f"  [{i+1}] {mut_name}: ERROR, keeping original")
-                errors.append({"step": "mutation", "index": i, "mutation": mut_name, "error": str(result), "prompt": population[i]["prompt"]})
+                common.console.print(f"  [{i + 1}] {mut_name}: ERROR, keeping original")
+                errors.append({
+                    "step": "mutation", "index": i, "mutation": mut_name,
+                    "error": str(result), "prompt": population[i]["prompt"],
+                })
                 continue
 
             new_prompt = result.strip()
             if _is_refusal(new_prompt) or not new_prompt:
-                common.console.print(f"  [{i+1}] {mut_name}: REFUSED, keeping original")
-                errors.append({"step": "mutation", "index": i, "mutation": mut_name, "error": "refusal", "output": new_prompt[:200], "prompt": population[i]["prompt"]})
+                common.console.print(f"  [{i + 1}] {mut_name}: REFUSED, keeping original")
+                errors.append({
+                    "step": "mutation", "index": i, "mutation": mut_name,
+                    "error": "refusal", "output": new_prompt[:200],
+                    "prompt": population[i]["prompt"],
+                })
                 continue
 
             old_ind = population[i]
@@ -254,7 +260,7 @@ def mutate_population(state: dict) -> dict:
                 mutation=mut_name,
                 generation=gen,
             )
-            # Update graph: replace the old crossover node with mutated version
+
             graph = get_graph()
             old_id = old_ind["id"]
             for node in graph["nodes"]:
@@ -263,14 +269,15 @@ def mutate_population(state: dict) -> dict:
                     node["prompt"] = new_prompt
                     node["mutation"] = mut_name
                     break
-            # Update edges that point to old id
             for edge in graph["edges"]:
                 if edge["target"] == old_id:
                     edge["target"] = new_ind_id
                     edge["label"] = mut_name
-            common.console.print(f"  [{i+1}] {mut_name}: {new_prompt[:70]}...")
+
+            common.console.print(f"  [{i + 1}] {mut_name}: {new_prompt[:70]}...")
 
     save_step("mutation", gen, population)
     if errors:
         save_step("mutation_errors", gen, errors)
+
     return {"population": population}

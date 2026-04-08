@@ -1,6 +1,8 @@
-"""Output manager — saves each step to ./output/<timestamp>/genN_step.json."""
+"""Output manager. Saves each step to ./output/<timestamp>/genN_step.json
+and accumulates an evolution graph as nodes/edges are produced."""
 
 from __future__ import annotations
+
 import json
 import os
 from datetime import datetime
@@ -10,8 +12,6 @@ from rich.console import Console
 console = Console()
 
 _output_dir: str = ""
-
-# ── Evolution graph built incrementally ────────────────────
 _graph: dict = {"nodes": [], "edges": []}
 
 
@@ -24,7 +24,6 @@ def get_graph() -> dict:
 
 
 def init_output() -> str:
-    """Create timestamped output directory, return its path."""
     global _output_dir, _graph
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     _output_dir = os.path.join("output", ts)
@@ -35,7 +34,6 @@ def init_output() -> str:
 
 
 def save_step(step_name: str, generation: int, population: list[dict]):
-    """Save step result to JSON."""
     filename = f"gen{generation}_{step_name}.json"
     path = os.path.join(_output_dir, filename)
     with open(path, "w", encoding="utf-8") as f:
@@ -43,18 +41,7 @@ def save_step(step_name: str, generation: int, population: list[dict]):
     console.print(f"  [dim]Saved -> {path}[/dim]")
 
 
-def save_final(data: dict):
-    """Save final evolution summary."""
-    path = os.path.join(_output_dir, "final.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-    console.print(f"[bold]Final results -> {path}[/bold]")
-
-
-# ── Graph building API ─────────────────────────────────────
-
 def add_node(node_id: str, generation: int, prompt: str, fitness: float, mutation: str | None):
-    """Add a node to the evolution graph."""
     _graph["nodes"].append({
         "id": node_id,
         "generation": generation,
@@ -65,7 +52,6 @@ def add_node(node_id: str, generation: int, prompt: str, fitness: float, mutatio
 
 
 def add_edge(parent_id: str, child_id: str, label: str):
-    """Add an edge to the evolution graph."""
     if parent_id and child_id and parent_id != child_id:
         _graph["edges"].append({
             "source": parent_id,
@@ -75,7 +61,6 @@ def add_edge(parent_id: str, child_id: str, label: str):
 
 
 def save_graph():
-    """Save the accumulated graph to JSON."""
     path = os.path.join(_output_dir, "graph.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(_graph, f, indent=2, ensure_ascii=False)

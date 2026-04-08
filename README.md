@@ -41,24 +41,6 @@ Two LLMs play different roles:
 Input: an initial prompt + a dataset of `(question, expected_answer)` pairs.
 Output: an evolution map (plotly `graph.html`) plus all intermediate states saved as JSON, so the full lineage of every prompt — who its parents were, which mutation produced it, how fitness changed — can be replayed after the fact.
 
-## Structure
-
-```
-evoprompts/
-├── core/               # config, state, LLM clients, LangGraph
-├── data/               # dataset loading + output/graph saving
-├── steps/              # evolution graph nodes
-│   ├── seed_step.py        # generate initial population
-│   ├── evaluate_step.py    # fitness evaluation (exact match + normalization)
-│   ├── select_step.py      # stop-condition check
-│   ├── evolve_step.py      # selection (top-k) + crossover
-│   └── mutation_step.py    # 40 mutation operators
-├── cli/                # entry point, visualization
-└── output/<timestamp>/ # per-step JSONs + graph.html
-```
-
-Flow: **LangGraph** wires the nodes `seed → evaluate → check_stop → evolve → mutate → evaluate → ...`
-
 ## Mutations
 
 40 LLM-based operators across 4 categories:
@@ -70,11 +52,23 @@ Flow: **LangGraph** wires the nodes `seed → evaluate → check_stop → evolve
 
 All reasoning-type mutations include a guard: "reason INTERNALLY, output ONLY the final answer" — so they don't break exact-match eval.
 
-## Dataset
+## Example run
 
-Currently using `MathArena/hmmt_feb_2025` (30 competition math problems, answers in LaTeX/numeric form).
+A small run on the first 30 GSM8K test problems with `population_size=6`, `top_k=2`, both LLM roles served by `gpt-5-nano` (`evolution_llm` at `reasoning=medium`, `inference_llm` at `reasoning=minimal`). Snapshots from this run live in [`docs/example/`](docs/example/).
 
-`extract_answer` picks the last number or fraction `X/Y`; `answers_match` compares with normalization (LaTeX `\frac`, decimals, 1% tolerance).
+The user supplied a deliberately bare initial prompt:
+
+> *"Answer this question. Provide only the exact final answer, nothing else."*
+
+That prompt landed at the bottom of generation 0 with **76.67%** accuracy. By generation 5 the population converged on a single elite at **86.67%**:
+
+> *"Take on the persona of an elite, rigorously precise problem-solver. For every user question, perform an internal contradiction check and a structured internal evaluation to determine the unique correct final answer. You may conduct internal, step-by-step reasoning to verify the solution, but you must not reveal that reasoning in your output. Before answering, internally verify that there are no contradictions in your reasoning; if contradictions are detected, resolve them internally to maintain a consistent conclusion. If the question is ambiguous, apply the constraints and information provided to select the most defensible, determinate interpretation and final answer; do not ask for clarification. Additionally, internally anticipate common errors and misinterpretations for this type of problem and actively avoid them. After completing internal checks and error-prevention assessments, respond with ONLY the final answer—on a single line, with no extra words, punctuation, or formatting."*
+
+What the winning prompt picked up over the baseline: an expert persona, an explicit *internal* reasoning step (so it does not waste output tokens on visible chain-of-thought), an internal contradiction check, error anticipation, and a strict "single line, final answer only" output discipline. None of those ideas were in the user's input — God assembled them from successive crossover and mutation steps, and the fitness function on GSM8K kept selecting them.
+
+The full evolution graph:
+![alt text](image.png)
+
 
 ## Run
 
@@ -92,8 +86,18 @@ Results land in `output/<timestamp>/`:
 - `graph.json` — evolution graph (nodes + edges)
 - `evolution_graph.html` — plotly visualization
 
-## Things to try
+## Structure
 
-- Tracking which mutations actually help (their frequency in top-k).
-- Adaptive mutation rate based on diversity.
-- Island model (multiple populations with rare migration).
+```
+evoprompts/
+├── core/               # config, state, LLM clients, LangGraph
+├── data/               # dataset loading + output/graph saving
+├── steps/              # evolution graph nodes
+│   ├── seed_step.py        # generate initial population
+│   ├── evaluate_step.py    # fitness evaluation (exact match + normalization)
+│   ├── select_step.py      # stop-condition check
+│   ├── evolve_step.py      # selection (top-k) + crossover
+│   └── mutation_step.py    # 40 mutation operators
+├── cli/                # entry point, visualization
+└── output/<timestamp>/ # per-step JSONs + graph.html
+```

@@ -1,9 +1,9 @@
-"""Step: evaluate population fitness."""
+"""Evaluate population fitness."""
 
 from __future__ import annotations
 
 from core.state import GenerationRecord
-from data.output import save_step, get_graph as _get_graph
+from data.output import get_graph, save_step
 import steps.common as common
 
 
@@ -14,20 +14,22 @@ def evaluate_population(state: dict) -> dict:
     population = state["population"]
     dataset = common.dataset
 
-    # Collect all (prompt_idx, sample_idx) pairs that need evaluation
+    # Only evaluate freshly produced individuals; elites carry their fitness over.
     to_eval: list[tuple[int, int]] = []
     for p_idx, ind in enumerate(population):
-        if ind["fitness"] == 0.0 or ind["generation"] == gen:
-            for s_idx in range(len(dataset)):
-                to_eval.append((p_idx, s_idx))
+        if ind["mutation"] == "elite":
+            continue
+        for s_idx in range(len(dataset)):
+            to_eval.append((p_idx, s_idx))
 
-    # Detailed log: per-prompt, per-question results
     eval_details: list[dict] = []
     errors: list[dict] = []
 
     if to_eval:
-        calls = [(population[p_idx]["prompt"], dataset[s_idx]["question"]) for p_idx, s_idx in to_eval]
-
+        calls = [
+            (population[p_idx]["prompt"], dataset[s_idx]["question"])
+            for p_idx, s_idx in to_eval
+        ]
         common.console.print(f"  Firing {len(calls)} inference calls in parallel...")
         results = common.llm.inference_batch_multi(calls)
 
@@ -65,18 +67,15 @@ def evaluate_population(state: dict) -> dict:
                 "raw_output": result if not isinstance(result, Exception) else str(result),
             })
 
-        # Update fitness on population and graph nodes
-        graph = _get_graph()
-        node_map = {n["id"]: n for n in graph["nodes"]}
-        for p_idx in scores:
-            fitness = scores[p_idx] / counts[p_idx]
+        graph_nodes = {n["id"]: n for n in get_graph()["nodes"]}
+        for p_idx, score in scores.items():
+            fitness = score / counts[p_idx]
             population[p_idx]["fitness"] = fitness
-            # Update graph node fitness
-            node = node_map.get(population[p_idx]["id"])
+            node = graph_nodes.get(population[p_idx]["id"])
             if node:
                 node["fitness"] = fitness
             common.console.print(
-                f"  [{p_idx+1}/{len(population)}] fitness={fitness:.2%}  {population[p_idx]['prompt'][:60]}..."
+                f"  [{p_idx + 1}/{len(population)}] fitness={fitness:.2%}  {population[p_idx]['prompt'][:60]}..."
             )
 
     best = max(population, key=lambda x: x["fitness"])
@@ -101,9 +100,10 @@ def evaluate_population(state: dict) -> dict:
     else:
         plateau_counter = 0
 
-    common.console.print(f"  [bold]Gen {gen}: best={best['fitness']:.2%}, avg={avg:.2%}, plateau={plateau_counter}[/bold]")
+    common.console.print(
+        f"  [bold]Gen {gen}: best={best['fitness']:.2%}, avg={avg:.2%}, plateau={plateau_counter}[/bold]"
+    )
 
-    # Save population summary + detailed Q&A pairs + errors
     save_step("evaluate", gen, population)
     save_step("evaluate_details", gen, eval_details)
     if errors:
